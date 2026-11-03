@@ -1,16 +1,27 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PRISMO_LAYERS, PRISMO_LOGO } from '../config/prismo-assets'
 import type { PrismoAssetKey } from '../config/prismo-assets'
 import type { PrismoSpeechVariant, PrismoStatus } from '../types/prismo'
+import type { SpeechBoundary } from '../types/speech'
 import { useReducedMotion } from '../hooks/useReducedMotion'
+import { buildMouthSchedule, findWordStartAt } from '../utils/speechSchedule'
+import type { MouthEvent, MouthFrame } from '../utils/speechSchedule'
 
 interface AvatarProps {
   status: PrismoStatus
   speechVariant?: PrismoSpeechVariant
+  /** Texto que se está reproduciendo (para programar la boca). */
+  speechText?: string | null
+  /** Última palabra alcanzada por el TTS (onboundary). */
+  boundary?: SpeechBoundary | null
 }
 
-/** Alternancia de boca solo mientras speechSynthesis reproduce. 120–180 ms por fotograma. */
-const MOUTH_INTERVAL_MS = 150
+/** Retardo inicial antes de la primera apertura (latencia de arranque del TTS). */
+const SPEECH_START_DELAY_MS = 110
+/** Retardo al re-anclar tras el primer `onboundary`. */
+const REANCHOR_DELAY_MS = 80
+/** Alternativa orgánica si no hay texto que programar. */
+const MOUTH_FRAME_DURATION_MS = 175
 /** Pose "explicando" al comenzar una explicación (no es un fotograma de boca). */
 const EXPLAIN_HOLD_MS = 1800
 /** Parpadeo ocasional en reposo. 120–180 ms visible. */
@@ -36,11 +47,11 @@ function assetAlt(status: PrismoStatus): string {
 /**
  * Selección centralizada de pose: depende únicamente del estado real
  * de la aplicación (status + speechVariant) y de los sub-estados
- * transitorios mouthOpen / blinking / explainHold.
+ * transitorios mouthFrame / blinking / explainHold.
  */
 function selectPose(
   status: PrismoStatus,
-  mouthOpen: boolean,
+  mouthFrame: MouthFrame,
   blinking: boolean,
   explainHold: boolean,
 ): PrismoAssetKey {
@@ -53,16 +64,23 @@ function selectPose(
       return 'thinking'
     case 'speaking':
       if (explainHold) return 'explaining'
-      return mouthOpen ? 'speakingOpen' : 'speakingClosed'
+      return mouthFrame
     case 'idle':
       return blinking ? 'blink' : 'idle'
   }
 }
 
-export function Avatar({ status, speechVariant = 'answer' }: AvatarProps) {
+export function Avatar({
+  status,
+  speechVariant = 'answer',
+  speechText = null,
+  boundary = null,
+}: AvatarProps) {
   const reducedMotion = useReducedMotion()
+  const mouthTimersRef = useRef<number[]>([])
+  const anchoredRef = useRef(false)
   const [blinking, setBlinking] = useState(false)
-  const [mouthOpen, setMouthOpen] = useState(true)
+  const [mouthFrame, setMouthFrame] = useState<MouthFrame>('speakingClosed')
   const [explainHold, setExplainHold] = useState(false)
   const [failedLayers, setFailedLayers] = useState<ReadonlySet<PrismoAssetKey>>(
     () => new Set(),
@@ -102,20 +120,95 @@ export function Avatar({ status, speechVariant = 'answer' }: AvatarProps) {
     }
   }, [status, reducedMotion])
 
-  // Alternancia de boca SOLO mientras speechSynthesis reproduce.
+  const clearMouthTimers = () => {
+    for (const timer of mouthTimersRef.current) {
+      window.clearTimeout(timer)
+    }
+    mouthTimersRef.current = []
+  }
+
+  const runMouthEvents = (events: MouthEvent[]) => {
+    clearMouthTimers()
+    mouthTimersRef.current = events.map((event) =>
+      window.setTimeout(() => setMouthFrame(event.frame), event.at),
+    )
+  }
+
+  // Respaldo orgánico si no hay texto que programar: ciclo suave de
+  // me-medio-abierto-o redondeada, nunca en metrónomo.
+  const ORGANIC_SEQUENCE: MouthFrame[] = [
+    'speakingMid',
+    'speakingOpen',
+    'speakingMid',
+    'speakingRound',
+    'speakingMid',
+    'speakingOpen',
+    'speakingClosed',
+  ]
+
+  const runOrganicMouth = () => {
+    clearMouthTimers()
+    setMouthFrame('speakingClosed')
+    let step = 0
+
+    const scheduleNext = () => {
+      const timer = window.setTimeout(() => {
+        setMouthFrame(ORGANIC_SEQUENCE[step % ORGANIC_SEQUENCE.length])
+        step += 1 + (Math.random() < 0.25 ? 1 : 0)
+        scheduleNext()
+      }, MOUTH_FRAME_DURATION_MS + Math.random() * 90)
+
+      mouthTimersRef.current.push(timer)
+    }
+
+    scheduleNext()
+
+    return clearMouthTimers
+  }
+
+  // Boca sincronizada: programación sílaba a sílaba a partir del texto,
+  // re-anclada al primer evento onboundary (corrige la latencia del TTS).
   useEffect(() => {
+    clearMouthTimers()
+    anchoredRef.current = false
+
     if (status !== 'speaking' || reducedMotion) {
-      setMouthOpen(true)
+      setMouthFrame('speakingClosed')
+      return undefined
+    }
+
+    if (!speechText) {
+      return runOrganicMouth()
+    }
+
+    setMouthFrame('speakingClosed')
+    runMouthEvents(buildMouthSchedule(speechText, SPEECH_START_DELAY_MS))
+    return clearMouthTimers
+  }, [status, speechText, reducedMotion])
+
+  // Primer onboundary: reconstruye la programación desde esa palabra.
+  useEffect(() => {
+    if (
+      !boundary ||
+      anchoredRef.current ||
+      status !== 'speaking' ||
+      !speechText ||
+      reducedMotion
+    ) {
       return
     }
 
-    setMouthOpen(true)
-    const interval = window.setInterval(() => {
-      setMouthOpen((current) => !current)
-    }, MOUTH_INTERVAL_MS)
+    if (boundary.charIndex >= speechText.length) return
 
-    return () => window.clearInterval(interval)
-  }, [status, reducedMotion])
+    anchoredRef.current = true
+    const start = findWordStartAt(speechText, boundary.charIndex)
+    runMouthEvents(
+      buildMouthSchedule(speechText.slice(start), REANCHOR_DELAY_MS),
+    )
+  }, [boundary, status, speechText, reducedMotion])
+
+  // Limpiar siempre al desmontar.
+  useEffect(() => clearMouthTimers, [])
 
   // Pose "explicando" una sola vez al comenzar una explicación hablada.
   useEffect(() => {
@@ -130,7 +223,7 @@ export function Avatar({ status, speechVariant = 'answer' }: AvatarProps) {
     return () => window.clearTimeout(timer)
   }, [status, speechVariant, reducedMotion])
 
-  const wantedPose = selectPose(status, mouthOpen, blinking, explainHold)
+  const wantedPose = selectPose(status, mouthFrame, blinking, explainHold)
   const activeKey: PrismoAssetKey | null = failedLayers.has(wantedPose)
     ? failedLayers.has('idle')
       ? null

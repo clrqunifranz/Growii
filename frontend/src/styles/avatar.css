@@ -97,6 +97,14 @@
   transform: translate3d(0, 0, 0) scale(1);
 }
 
+/* Al hablar, el fundido entre fotogramas de boca es rápido pero suave,
+   para un morphing continuo (sin cortes estroboscópicos). */
+.avatar[data-status='speaking'] .avatar__layer {
+  transition:
+    opacity 180ms ease-in-out,
+    transform 180ms ease-in-out;
+}
+
 /* Pin institucional sobre la esquina superior del personaje. */
 .avatar__logo {
   position: absolute;

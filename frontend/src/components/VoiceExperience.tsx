@@ -37,6 +37,7 @@ export function VoiceExperience({
 
   const [appState, setAppState] = useState<VoiceState>('greeting')
   const [entranceDone, setEntranceDone] = useState(false)
+  const [speechText, setSpeechText] = useState<string | null>(null)
   const [speechVariant, setSpeechVariant] = useState<PrismoSpeechVariant>('answer')
   const [notice, setNotice] = useState<string | null>(null)
   const [greeted, setGreeted] = useState(false)
@@ -53,6 +54,7 @@ export function VoiceExperience({
   const speakReply = useCallback(
     (reply: string) => {
       lastReplyRef.current = reply
+      setSpeechText(reply)
       synthesis.cancel()
       synthesis.speak(reply)
     },
@@ -177,6 +179,7 @@ export function VoiceExperience({
       return
     }
 
+    setSpeechText(GREETING)
     synthesis.cancel()
     synthesis.speak(GREETING)
     setAppState('greeting')
@@ -401,7 +404,12 @@ export function VoiceExperience({
       </h1>
 
       <section className="voice-stage" aria-label="Prismo y ALMA">
-        <Avatar status={pose} speechVariant={speechVariant} />
+        <Avatar
+          status={pose}
+          speechVariant={speechVariant}
+          speechText={speechText}
+          boundary={synthesis.boundary}
+        />
 
         {error ? (
           <div className="voice-notice" role="alert">

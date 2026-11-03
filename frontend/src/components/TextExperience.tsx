@@ -140,7 +140,12 @@ export function TextExperience({
 
       <main className="app-main">
         <aside className="alma-rail" aria-label="Presentación de ALMA">
-          <Avatar status={avatarStatus} speechVariant={speechVariant} />
+          <Avatar
+            status={avatarStatus}
+            speechVariant={speechVariant}
+            speechText={lastAssistantReply ?? null}
+            boundary={synthesis.boundary}
+          />
 
           <section className="alma-intro" aria-labelledby="intro-title">
             <p className="section-label">

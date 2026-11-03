@@ -1,3 +1,10 @@
+export interface SpeechBoundary {
+  /** Índice de carácter del inicio de la palabra reconocida. */
+  charIndex: number
+  /** Momento (Date.now()) en que llegó el evento. */
+  at: number
+}
+
 export interface AlmaSpeechAlternative {
   transcript: string
   confidence: number

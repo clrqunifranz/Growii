@@ -3,7 +3,8 @@
  * Todos viven en `public/assets/prismo/` y se referencian desde la raíz.
  *
  * Extensiones verificadas en disco:
- * - JPG: saludando, escuchando, thinking, explicando, mouth-closed, ojosclosed.
+ * - JPG: saludando, escuchando, thinking, explicando, mouth-closed, ojosclosed,
+ *   intermedio, mamap, secue.
  * - PNG: mouth-open y el logo institucional de UNIFRANZ.
  *
  * Las imágenes comparten el mismo encuadre (cabeza ≈ 39% de la altura,
@@ -21,6 +22,9 @@ export const PRISMO_ASSETS = {
   blink: '/assets/prismo/prismo-ojosclosed.jpg',
   speakingOpen: '/assets/prismo/prismo-mouth-open.png',
   speakingClosed: '/assets/prismo/prismo-mouth-closed.jpg',
+  speakingMid: '/assets/prismo/prismo-intermedio.jpg',
+  speakingRound: '/assets/prismo/prismo-mamap.jpg',
+  speakingEmphatic: '/assets/prismo/prismo-secue.jpg',
 } as const
 
 export const PRISMO_LOGO = '/assets/prismo/unifranz-logo.png'
@@ -43,4 +47,7 @@ export const PRISMO_LAYERS: readonly PrismoLayer[] = [
   { key: 'blink', src: PRISMO_ASSETS.blink, filter: 'saturate(0.78) brightness(1.13)' },
   { key: 'speakingOpen', src: PRISMO_ASSETS.speakingOpen },
   { key: 'speakingClosed', src: PRISMO_ASSETS.speakingClosed },
+  { key: 'speakingMid', src: PRISMO_ASSETS.speakingMid },
+  { key: 'speakingRound', src: PRISMO_ASSETS.speakingRound, filter: 'saturate(0.96) brightness(1.02)' },
+  { key: 'speakingEmphatic', src: PRISMO_ASSETS.speakingEmphatic },
 ]
