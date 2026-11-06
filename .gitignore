@@ -1,5 +1,21 @@
+# Dependencias
 node_modules/
+
+# Variables de entorno y secretos (se permiten solo los ejemplos sin claves)
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+
+# Compilados y cobertura
 dist/
+coverage/
+
+# Logs y archivos locales del sistema/editor
+*.log
+.DS_Store
+Thumbs.db
+
+# Configuracion local de despliegue
+.vercel

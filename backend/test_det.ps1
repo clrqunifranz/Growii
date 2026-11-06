@@ -1,0 +1,2 @@
+﻿cd C:\Users\Usuario\prismoGemini\backend
+node -e "const {generateReply}=require('./src/services/gemini');(async()=>{const r1=await generateReply({message:'beneficios'});console.log(r1.substring(0,20));const r2=await generateReply({message:'telefono'});console.log(r2.substring(0,20));const r3=await generateReply({message:'practicas remuneradas'});console.log(r3.substring(0,20));})();" 2>&1 | Select-Object -Last 10
