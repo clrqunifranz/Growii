@@ -1,17 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { logEvent } from '../utils/telemetry'
 import type {
-  AlmaSpeechRecognition,
-  AlmaSpeechRecognitionErrorEvent,
-  AlmaSpeechRecognitionEvent,
-  AlmaSpeechWindow,
+  GrowiiSpeechRecognition,
+  GrowiiSpeechRecognitionErrorEvent,
+  GrowiiSpeechRecognitionEvent,
+  GrowiiSpeechWindow,
 } from '../types/speech'
 
 const DEFAULT_LANGUAGE = 'es-BO'
 const FALLBACK_LANGUAGE = 'es-ES'
 
+/** Silencio continuo tras el último resultado antes de cerrar la captura. */
+const SILENCE_MS = 1800
+/** Margen tras `onspeechend` para recibir el resultado final del motor. */
+const SPEECH_END_GRACE_MS = 900
+/** Respaldo por si el motor nunca dispara `onend`. */
+const STOP_FALLBACK_MS = 1500
+/** Texto mínimo para considerar un dictado válido. */
+const MIN_TEXT_LENGTH = 2
+
 interface SpeechRecognitionOptions {
   onText?: (text: string) => void
   onEnd?: () => void
+}
+
+interface DeliveredText {
+  text: string
+  at: number
 }
 
 function friendlyRecognitionError(code: string): string {
@@ -20,18 +35,22 @@ function friendlyRecognitionError(code: string): string {
     case 'service-not-allowed':
       return 'No se concedió permiso para usar el micrófono.'
     case 'no-speech':
-      return 'No te escuché. Intenta nuevamente.'
+      return 'No te escuché. Intenta hablar más cerca del micrófono.'
     case 'audio-capture':
       return 'No se encontró un micrófono disponible.'
     case 'network':
       return 'El reconocimiento de voz necesita conexión a internet.'
     case 'language-not-supported':
-      return 'El navegador no admite el idioma solicitado para el dictado.'
+      return 'El navegador no admite es-BO. Vuelve a pulsar el micrófono; se usará español estándar.'
     case 'aborted':
       return 'El reconocimiento se canceló. Intenta nuevamente.'
     default:
       return 'No se pudo iniciar el reconocimiento de voz.'
   }
+}
+
+function normalizeTranscript(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
 }
 
 export function useSpeechRecognition({
@@ -40,22 +59,126 @@ export function useSpeechRecognition({
 }: SpeechRecognitionOptions = {}) {
   const [isSupported, setIsSupported] = useState(false)
   const [isListening, setIsListening] = useState(false)
+  const [interimText, setInterimText] = useState('')
   const [error, setError] = useState<string | null>(null)
 
-  const recognitionRef = useRef<AlmaSpeechRecognition | null>(null)
+  const recognitionRef = useRef<GrowiiSpeechRecognition | null>(null)
   const isListeningRef = useRef(false)
   const onTextRef = useRef(onText)
   const onEndRef = useRef(onEnd)
   const languageRef = useRef(DEFAULT_LANGUAGE)
   const ignoreResultsRef = useRef(false)
 
+  /** Texto confirmado (resultados `isFinal`) de la captura actual. */
+  const finalTextRef = useRef('')
+  /** Texto provisional mostrado mientras el usuario habla. */
+  const interimTextRef = useRef('')
+  /** Evita finalizar/deduplicar dos veces la misma captura. */
+  const finishedRef = useRef(true)
+  const lastDeliveredRef = useRef<DeliveredText | null>(null)
+
+  const silenceTimerRef = useRef<number | null>(null)
+  const speechEndTimerRef = useRef<number | null>(null)
+  const stopFallbackTimerRef = useRef<number | null>(null)
+
   useEffect(() => {
     onTextRef.current = onText
     onEndRef.current = onEnd
   }, [onEnd, onText])
 
+  const clearSessionTimers = useCallback(() => {
+    if (silenceTimerRef.current) {
+      window.clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = null
+    }
+    if (speechEndTimerRef.current) {
+      window.clearTimeout(speechEndTimerRef.current)
+      speechEndTimerRef.current = null
+    }
+    if (stopFallbackTimerRef.current) {
+      window.clearTimeout(stopFallbackTimerRef.current)
+      stopFallbackTimerRef.current = null
+    }
+  }, [])
+
+  const deliverText = useCallback((rawText: string) => {
+    const text = normalizeTranscript(rawText)
+    if (text.length < MIN_TEXT_LENGTH) return
+
+    const now = Date.now()
+    const previous = lastDeliveredRef.current
+    if (
+      previous &&
+      previous.text.toLowerCase() === text.toLowerCase() &&
+      now - previous.at < 3000
+    ) {
+      console.debug('[GROWII] Dictado duplicado ignorado.')
+      return
+    }
+
+    lastDeliveredRef.current = { text, at: now }
+    console.debug(`[GROWII] Dictado final: ${text.length} caracteres.`)
+    logEvent('recognition', `Texto reconocido: «${text.slice(0, 120)}»`)
+    onTextRef.current?.(text)
+  }, [])
+
+  /**
+   * Cierra la captura una sola vez, entrega el texto acumulado y libera
+   * el indicador de micrófono. Es idempotente: la llaman `onend`, los
+   * errores y el temporizador de respaldo.
+   */
+  const finishSession = useCallback(() => {
+    if (finishedRef.current) return
+    finishedRef.current = true
+    clearSessionTimers()
+    isListeningRef.current = false
+    setIsListening(false)
+
+    const text = normalizeTranscript(
+      finalTextRef.current || interimTextRef.current,
+    )
+    finalTextRef.current = ''
+    interimTextRef.current = ''
+    setInterimText('')
+
+    if (!ignoreResultsRef.current) {
+      deliverText(text)
+    }
+
+    logEvent('recognition', 'Dictado finalizado')
+    console.debug('[GROWII] Reconocimiento finalizado.')
+    onEndRef.current?.()
+  }, [clearSessionTimers, deliverText])
+
+  const requestStop = useCallback(
+    (delayMs: number) => {
+      if (silenceTimerRef.current) {
+        window.clearTimeout(silenceTimerRef.current)
+      }
+      silenceTimerRef.current = window.setTimeout(() => {
+        silenceTimerRef.current = null
+        if (!isListeningRef.current) return
+        if (!finalTextRef.current && !interimTextRef.current) return
+
+        console.debug('[GROWII] Silencio detectado; cerrando captura.')
+        try {
+          recognitionRef.current?.stop()
+        } catch {
+          finishSession()
+          return
+        }
+
+        // Si el motor no dispara `onend`, cerramos igualmente.
+        stopFallbackTimerRef.current = window.setTimeout(() => {
+          if (isListeningRef.current) finishSession()
+        }, STOP_FALLBACK_MS)
+      }, delayMs)
+    },
+    [finishSession],
+  )
+
   useEffect(() => {
-    const speechWindow = window as AlmaSpeechWindow
+    const speechWindow = window as GrowiiSpeechWindow
     const RecognitionConstructor =
       speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition
     const secureContext = typeof window !== 'undefined' && window.isSecureContext
@@ -64,19 +187,19 @@ export function useSpeechRecognition({
       !!mediaDevices && typeof mediaDevices.getUserMedia === 'function'
 
     if (!RecognitionConstructor) {
-      console.debug('[ALMA] Reconocimiento de voz no disponible en este navegador.')
+      console.debug('[GROWII] Reconocimiento de voz no disponible en este navegador.')
       setIsSupported(false)
       return
     }
 
     if (!secureContext) {
-      console.debug('[ALMA] Reconocimiento de voz bloqueado: contexto no seguro.')
+      console.debug('[GROWII] Reconocimiento de voz bloqueado: contexto no seguro.')
       setIsSupported(false)
       return
     }
 
     if (!hasAudioDevices) {
-      console.debug('[ALMA] Reconocimiento de voz bloqueado: micrófono no detectable.')
+      console.debug('[GROWII] Reconocimiento de voz bloqueado: micrófono no detectable.')
       setIsSupported(false)
       return
     }
@@ -85,29 +208,27 @@ export function useSpeechRecognition({
 
     const recognition = new RecognitionConstructor()
     recognition.lang = languageRef.current
-    recognition.continuous = false
-    recognition.interimResults = false
+    // `continuous` + detección propia de silencio: el motor no cierra la
+    // captura en la primera pausa y nosotros decidimos cuándo terminó.
+    recognition.continuous = true
+    recognition.interimResults = true
     recognition.maxAlternatives = 1
 
     recognition.onstart = () => {
+      finishedRef.current = false
       ignoreResultsRef.current = false
       isListeningRef.current = true
       setIsListening(true)
       setError(null)
-      console.debug('[ALMA] Reconocimiento iniciado.')
+      logEvent('recognition', 'Dictado iniciado')
+      console.debug('[GROWII] Reconocimiento iniciado.')
     }
 
-    recognition.onend = () => {
-      isListeningRef.current = false
-      setIsListening(false)
-      console.debug('[ALMA] Reconocimiento finalizado.')
-      onEndRef.current?.()
-    }
+    recognition.onresult = (event: GrowiiSpeechRecognitionEvent) => {
+      if (ignoreResultsRef.current || finishedRef.current) return
 
-    recognition.onresult = (event: AlmaSpeechRecognitionEvent) => {
-      if (ignoreResultsRef.current) return
-
-      let finalText = ''
+      let finalFragment = ''
+      let interimFragment = ''
 
       for (
         let index = event.resultIndex;
@@ -115,38 +236,64 @@ export function useSpeechRecognition({
         index += 1
       ) {
         const result = event.results[index]
-        if (!result.isFinal) continue
-        finalText += result[0]?.transcript ?? ''
+        const transcript = result[0]?.transcript ?? ''
+        if (result.isFinal) {
+          finalFragment += ` ${transcript}`
+        } else {
+          interimFragment += ` ${transcript}`
+        }
       }
 
-      const cleanText = finalText.replace(/\s+/g, ' ').trim()
-
-      if (!cleanText) {
-        console.debug('[ALMA] Resultado recibido sin una frase final.')
-        return
+      const finalClean = normalizeTranscript(finalFragment)
+      if (finalClean) {
+        finalTextRef.current = normalizeTranscript(
+          `${finalTextRef.current} ${finalClean}`,
+        )
+        interimTextRef.current = ''
+        setInterimText('')
+      } else {
+        interimTextRef.current = normalizeTranscript(interimFragment)
+        setInterimText(interimTextRef.current)
       }
 
-      console.debug('[ALMA] Resultado final recibido.')
-      onTextRef.current?.(cleanText)
+      if (finalTextRef.current || interimTextRef.current) {
+        // Cada nuevo resultado reinicia el reloj de silencio.
+        requestStop(SILENCE_MS)
+      }
     }
 
-    recognition.onerror = (event: AlmaSpeechRecognitionErrorEvent) => {
-      isListeningRef.current = false
-      setIsListening(false)
-      console.debug(`[ALMA] Error de reconocimiento: ${event.error || 'desconocido'}.`)
+    recognition.onspeechend = () => {
+      if (!isListeningRef.current) return
+      if (!finalTextRef.current && !interimTextRef.current) return
+      // El motor ya detectó el final del habla: damos un margen breve
+      // para recibir el resultado final y cerramos automáticamente.
+      requestStop(SPEECH_END_GRACE_MS)
+    }
 
-      if (event.error === 'aborted') return
+    recognition.onerror = (event: GrowiiSpeechRecognitionErrorEvent) => {
+      const code = event.error || 'desconocido'
+      console.debug(`[GROWII] Error de reconocimiento: ${code}.`)
+      logEvent('error', `Reconocimiento: ${code}`, false)
 
-      if (event.error === 'language-not-supported') {
-        languageRef.current = FALLBACK_LANGUAGE
-        recognition.lang = FALLBACK_LANGUAGE
-        setError(
-          'El navegador no admite es-BO. Vuelve a pulsar el micrófono; se usará español estándar.',
-        )
+      if (code === 'aborted') {
+        finishSession()
         return
       }
 
-      setError(friendlyRecognitionError(event.error))
+      // Un error invalida el texto parcial: no se envía nada a medias.
+      ignoreResultsRef.current = true
+
+      if (code === 'language-not-supported') {
+        languageRef.current = FALLBACK_LANGUAGE
+        recognition.lang = FALLBACK_LANGUAGE
+      }
+
+      setError(friendlyRecognitionError(code))
+      finishSession()
+    }
+
+    recognition.onend = () => {
+      finishSession()
     }
 
     recognitionRef.current = recognition
@@ -155,12 +302,19 @@ export function useSpeechRecognition({
       recognition.onstart = null
       recognition.onend = null
       recognition.onresult = null
+      recognition.onspeechend = null
       recognition.onerror = null
-      recognition.abort()
+      try {
+        recognition.abort()
+      } catch {
+        /* ya detenido */
+      }
       recognitionRef.current = null
       isListeningRef.current = false
+      finishedRef.current = true
+      clearSessionTimers()
     }
-  }, [])
+  }, [clearSessionTimers, finishSession, requestStop])
 
   const start = useCallback(() => {
     const recognition = recognitionRef.current
@@ -169,39 +323,62 @@ export function useSpeechRecognition({
       setError(
         'El reconocimiento de voz no está disponible en este navegador. Usa el modo TEXTO.',
       )
-      console.debug('[ALMA] Intento de inicio sin soporte detectado.')
+      console.debug('[GROWII] Intento de inicio sin soporte detectado.')
       return
     }
 
     if (!recognition || isListeningRef.current) return
 
-    console.debug('[ALMA] Solicitando permiso de micrófono.')
-    isListeningRef.current = false
-    setError(null)
+    finalTextRef.current = ''
+    interimTextRef.current = ''
     ignoreResultsRef.current = false
-    recognition.lang = languageRef.current
+    finishedRef.current = false
+    clearSessionTimers()
+    setInterimText('')
+    setError(null)
 
+    recognition.lang = languageRef.current
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.maxAlternatives = 1
+
+    console.debug('[GROWII] Iniciando dictado; se solicitará permiso de micrófono.')
     try {
       recognition.start()
     } catch {
+      finishedRef.current = true
       isListeningRef.current = false
       setIsListening(false)
-      console.debug('[ALMA] No se pudo iniciar el reconocimiento.')
+      console.debug('[GROWII] No se pudo iniciar el reconocimiento.')
       setError('No se pudo iniciar el micrófono. Intenta nuevamente.')
     }
-  }, [isSupported])
+  }, [clearSessionTimers, isSupported])
 
-  const stop = useCallback((discardResults = false) => {
-    ignoreResultsRef.current = discardResults
+  const stop = useCallback(
+    (discardResults = false) => {
+      if (discardResults) ignoreResultsRef.current = true
+      clearSessionTimers()
 
-    if (recognitionRef.current) {
-      console.debug('[ALMA] Detención manual del reconocimiento.')
-      recognitionRef.current.stop()
-      return
-    }
+      const recognition = recognitionRef.current
+      if (!recognition) {
+        setIsListening(false)
+        return
+      }
 
-    console.debug('[ALMA] No había un reconocimiento activo para detener.')
-  }, [])
+      console.debug('[GROWII] Detención manual del reconocimiento.')
+      try {
+        recognition.stop()
+      } catch {
+        finishSession()
+        return
+      }
+
+      stopFallbackTimerRef.current = window.setTimeout(() => {
+        if (isListeningRef.current) finishSession()
+      }, STOP_FALLBACK_MS)
+    },
+    [clearSessionTimers, finishSession],
+  )
 
   const toggle = useCallback(() => {
     if (isListeningRef.current) {
@@ -218,6 +395,7 @@ export function useSpeechRecognition({
   return {
     isSupported,
     isListening,
+    interimText,
     error,
     start,
     stop,

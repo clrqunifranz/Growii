@@ -7,7 +7,6 @@ export interface ChatMessage {
   role: ChatRole
   content: string
   createdAt: number
-  isDemo?: boolean
 }
 
 export interface ChatApiMessage {
@@ -25,5 +24,4 @@ export interface ChatErrorResponse {
 
 export interface ChatResult {
   reply: string
-  demo: boolean
 }

@@ -11,7 +11,7 @@
  * - a / á            → speakingOpen   (mandíbula caída)
  * - o / ó, u / ú     → speakingRound  (boca redondeada)
  * - e / é, i / í     → speakingMid    (boca entreabierta)
- * - sílaba acentuada → speakingEmphatic (prismo-secue: cejas y boca vivas)
+ * - sílaba acentuada → speakingEmphatic (apertura acentuada y viva)
  * - entre palabras   → speakingClosed  (pausa breve)
  * - pausas fuertes (, . ; : ! ? …) y alguna pausa normal → blink
  *   (ojosclosed: "sonrisa con ojos cerrados"; la taza baja, como en reposo)

@@ -1,0 +1,302 @@
+/* ================================================================
+   Growii · detalles sutiles + animaciones por estado
+   Fondo liso (el tuyo). Sin degradados.
+   ================================================================ */
+
+.gw {
+  --owl-y: 47%; /* altura del centro del búho en el escenario */
+  --base-y: 82%; /* altura de la línea de apoyo */
+  --disc: 64%; /* tamaño del disco detrás del búho */
+  --hair: rgba(241, 238, 231, 0.16);
+}
+
+/* ---------- Disco liso + anillo detrás del búho ---------- */
+.gw-stage__frame {
+  isolation: isolate;
+}
+
+.gw-stage__frame::before,
+.gw-stage__frame::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: var(--owl-y);
+  width: var(--disc);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: -1;
+  transform: translate(-50%, -50%);
+  transition:
+    border-color 0.6s ease,
+    background-color 0.6s ease;
+}
+
+.gw-stage__frame::before {
+  background: rgba(241, 238, 231, 0.045);
+  border: 1px solid var(--hair);
+  animation: gw-disc 8s ease-in-out infinite;
+}
+
+.gw-stage__frame::after {
+  border: 1.5px solid var(--signal);
+  opacity: 0;
+}
+
+@keyframes gw-disc {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.97);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.03);
+  }
+}
+
+/* ---------- Línea de apoyo + cuadrito naranja ---------- */
+.gw-stagehit::after {
+  content: "";
+  position: absolute;
+  left: 21%;
+  width: 58%;
+  top: var(--base-y);
+  height: 1px;
+  background: rgba(241, 238, 231, 0.28);
+  transform-origin: left center;
+  pointer-events: none;
+  transition: background-color 0.6s ease;
+  animation: gw-line-in 1.4s 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.gw-stagehit::before {
+  content: "";
+  position: absolute;
+  left: 21%;
+  top: calc(var(--base-y) - 9px);
+  width: 8px;
+  height: 8px;
+  background: var(--signal);
+  pointer-events: none;
+}
+
+@keyframes gw-line-in {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* ---------- Búho: respiración ---------- */
+.gw-owl {
+  transform-origin: 50% 75%;
+  animation: gw-float 8s ease-in-out infinite;
+}
+
+@keyframes gw-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* ---------- Etiqueta de estado: cuadrito naranja ---------- */
+.gw-stage__tag::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 0.7rem;
+  background: var(--signal);
+  vertical-align: middle;
+  animation: gw-blink 3s ease-in-out infinite;
+}
+
+@keyframes gw-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ================= Reacciones por estado ================= */
+
+/* Saludo */
+.gw[data-status="greeting"] .gw-owl {
+  animation: gw-hello 1.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.gw[data-status="greeting"] .gw-stage__frame::before {
+  animation: gw-disc-in 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes gw-hello {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes gw-disc-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* Escuchando */
+.gw[data-status="listening"] .gw-stage__frame::before {
+  border-color: rgba(241, 238, 231, 0.4);
+}
+.gw[data-status="listening"] .gw-stage__frame::after {
+  border-color: rgba(241, 238, 231, 0.6);
+  animation: gw-listen 3s ease-in-out infinite;
+}
+@keyframes gw-listen {
+  0% {
+    transform: translate(-50%, -50%) scale(1.3);
+    opacity: 0;
+  }
+  30% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.95);
+    opacity: 0;
+  }
+}
+.gw[data-status="listening"] .gw-stage__tag::before {
+  animation-duration: 1.2s;
+}
+
+/* Pensando */
+.gw[data-status="thinking"] .gw-owl {
+  animation-duration: 12s;
+}
+.gw[data-status="thinking"] .gw-stage__frame::before {
+  border-style: dashed;
+  border-color: rgba(241, 238, 231, 0.3);
+  animation: gw-spin 40s linear infinite;
+}
+@keyframes gw-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* Hablando: todo al mismo ritmo (2.6 s) */
+.gw[data-status="speaking"] .gw-owl {
+  animation: gw-speak 2.6s ease-in-out infinite;
+}
+.gw[data-status="speaking"] .gw-stage__frame::before {
+  border-color: rgba(241, 238, 231, 0.3);
+  animation: gw-speak-disc 2.6s ease-in-out infinite;
+}
+.gw[data-status="speaking"] .gw-stage__frame::after {
+  animation: gw-speak-ripple 2.6s ease-out infinite;
+}
+.gw[data-status="speaking"] .gw-stagehit::after {
+  background: var(--signal);
+  animation: gw-speak-line 2.6s ease-in-out infinite;
+}
+.gw[data-status="speaking"] .gw-stage__tag::before {
+  animation-duration: 1.2s;
+}
+
+@keyframes gw-speak {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.015);
+  }
+}
+@keyframes gw-speak-disc {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.98);
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.045);
+  }
+}
+@keyframes gw-speak-ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(0.95);
+    opacity: 0.55;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.25);
+    opacity: 0;
+  }
+}
+@keyframes gw-speak-line {
+  0%,
+  100% {
+    transform: scaleX(0.55);
+  }
+  50% {
+    transform: scaleX(1);
+  }
+}
+
+/* Error */
+.gw[data-status="error"] .gw-stage__frame::before {
+  border-color: var(--error);
+  animation: none;
+  opacity: 0.5;
+}
+
+/* ---------- Accesibilidad: solo apaga lo nuevo ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .gw-owl,
+  .gw-stage__frame::before,
+  .gw-stage__frame::after,
+  .gw-stagehit::before,
+  .gw-stagehit::after,
+  .gw-stage__tag::before {
+    animation: none !important;
+  }
+}
+
+/* ---------- Dictado en curso ---------- */
+.gw-listening {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.35rem 0.9rem 0.45rem;
+  color: var(--signal-deep);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.gw-listening .gw-wave i {
+  background: var(--signal);
+}
+.gw-listening__text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--ink-soft);
+  font-family: inherit;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
