@@ -5,33 +5,33 @@ export interface SpeechBoundary {
   at: number
 }
 
-export interface AlmaSpeechAlternative {
+export interface GrowiiSpeechAlternative {
   transcript: string
   confidence: number
 }
 
-export interface AlmaSpeechResult {
+export interface GrowiiSpeechResult {
   readonly isFinal: boolean
   readonly length: number
-  [index: number]: AlmaSpeechAlternative
+  [index: number]: GrowiiSpeechAlternative
 }
 
-export interface AlmaSpeechResultList {
+export interface GrowiiSpeechResultList {
   readonly length: number
-  [index: number]: AlmaSpeechResult
+  [index: number]: GrowiiSpeechResult
 }
 
-export interface AlmaSpeechRecognitionEvent extends Event {
+export interface GrowiiSpeechRecognitionEvent extends Event {
   readonly resultIndex: number
-  readonly results: AlmaSpeechResultList
+  readonly results: GrowiiSpeechResultList
 }
 
-export interface AlmaSpeechRecognitionErrorEvent extends Event {
+export interface GrowiiSpeechRecognitionErrorEvent extends Event {
   readonly error: string
   readonly message: string
 }
 
-export interface AlmaSpeechRecognition extends EventTarget {
+export interface GrowiiSpeechRecognition extends EventTarget {
   lang: string
   continuous: boolean
   interimResults: boolean
@@ -41,13 +41,13 @@ export interface AlmaSpeechRecognition extends EventTarget {
   abort: () => void
   onstart: (() => void) | null
   onend: (() => void) | null
-  onresult: ((event: AlmaSpeechRecognitionEvent) => void) | null
-  onerror: ((event: AlmaSpeechRecognitionErrorEvent) => void) | null
+  onresult: ((event: GrowiiSpeechRecognitionEvent) => void) | null
+  onerror: ((event: GrowiiSpeechRecognitionErrorEvent) => void) | null
 }
 
-export type AlmaSpeechRecognitionConstructor = new () => AlmaSpeechRecognition
+export type GrowiiSpeechRecognitionConstructor = new () => GrowiiSpeechRecognition
 
-export type AlmaSpeechWindow = Window & {
-  SpeechRecognition?: AlmaSpeechRecognitionConstructor
-  webkitSpeechRecognition?: AlmaSpeechRecognitionConstructor
+export type GrowiiSpeechWindow = Window & {
+  SpeechRecognition?: GrowiiSpeechRecognitionConstructor
+  webkitSpeechRecognition?: GrowiiSpeechRecognitionConstructor
 }

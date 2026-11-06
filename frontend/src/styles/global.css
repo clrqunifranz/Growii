@@ -1,12 +1,4 @@
 @font-face {
-  font-family: 'Fraunces';
-  src: url('/fonts/fraunces-latin.woff2') format('woff2');
-  font-style: normal;
-  font-weight: 600 900;
-  font-display: swap;
-}
-
-@font-face {
   font-family: 'Instrument Sans';
   src: url('/fonts/instrument-sans-latin.woff2') format('woff2');
   font-style: normal;
@@ -30,32 +22,33 @@
   font-display: swap;
 }
 
-:root {
-  color-scheme: light;
-  --paper: #f3efe4;
-  --paper-2: #e7e0d1;
-  --ink: #121212;
-  --ink-soft: #5b554b;
-  --rule: #cec5b4;
-  --signal: #fe5000;
-  --signal-deep: #b83a00;
-  --prismo: #d95c86;
-  --error: #8e2a1c;
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('/fonts/space-grotesk-latin-wght-normal.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+}
 
-  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+:root {
+  color-scheme: dark;
+  /* Paleta gris oscura cálida — tótem vertical (no negro puro). */
+  --paper: #292B2D;
+  --paper-2: #35383A;
+  --ink: #F1EEE7;
+  --ink-soft: #C6C5C0;
+  --rule: #46484A;
+  --signal: #FE5000;
+  --signal-hover: #FF6A1A;
+  --signal-deep: #FF7A33;
+  --error: #E07A5F;
+
+  --font-wordmark: 'Space Grotesk', 'Instrument Sans', sans-serif;
   --font-text: 'Instrument Sans', 'Helvetica Neue', Arial, sans-serif;
   --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
 
   --page-margin: clamp(18px, 2.4vw, 40px);
   --gutter: clamp(14px, 1.8vw, 28px);
-}
-
-.experience-shell {
-  display: contents;
-}
-
-.experience-hidden {
-  display: none !important;
 }
 
 *,
@@ -134,7 +127,7 @@ svg {
 
 ::selection {
   background: var(--signal);
-  color: var(--ink);
+  color: #292b2d;
 }
 
 :focus-visible {
@@ -152,21 +145,6 @@ svg {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-.section-label {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 10px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 400;
-  line-height: 1.3;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
 }
 
 @media (prefers-reduced-motion: reduce) {

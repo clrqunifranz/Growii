@@ -1,35 +1,67 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SpeechBoundary } from '../types/speech'
 import { SPEECH_RATE } from '../utils/speechSchedule'
+import { logEvent } from '../utils/telemetry'
 
 const VOICE_PREFERENCES = ['es-BO', 'es-419', 'es-MX', 'es-US', 'es-ES']
 
-/** Pistas de voces masculinas en español (Windows, macOS, Chrome/Google). */
-const MALE_HINTS = [
-  'pablo',
-  'raul',
-  'raúl',
-  'jorge',
-  'gonzalo',
-  'tomas',
-  'tomás',
-  'alvaro',
-  'álvaro',
-  'miguel',
-  'enrique',
-  'daniel',
-  'male',
-  'hombre',
+/**
+ * Reemplazos de pronunciación para el TTS: siglas, marcas y símbolos
+ * que los motores leen mal en español. Se aplican sobre el texto ya
+ * limpio de markdown, antes de crear el utterance.
+ * OJO: el orden importa (UNIFRANZ antes que UNIFRANZ suelto, etc.).
+ */
+const PRONUNCIATION_MAP: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bUNIFRANZ\b/gi, 'Unifranz'],
+  [/\bGROWII\b/gi, 'Groui'],
+  [/\bRED\s+ALUMNI\b/gi, 'Red Alumni'],
+  [/\bCV\b/g, 'ce uve'],
+  [/\bRRHH\b/gi, 'erre erre hache hache'],
+  [/\bTI\b/g, 'te i'],
+  [/\bRRSS\b/gi, 'erre erre ese ese'],
+  [/&/g, ' y '],
+  [/%/g, ' por ciento '],
+  [/@/g, ' arroba '],
 ]
 
-function isMaleVoiceName(name: string): boolean {
+/** Pistas de voces femeninas jóvenes en español (Windows, macOS, Chrome/Google). */
+const FEMALE_HINTS = [
+  'sofia',
+  'sofía',
+  'dalia',
+  'sabina',
+  'mónica',
+  'monica',
+  'helena',
+  'elvira',
+  'paola',
+  'paloma',
+  'valeria',
+  'lucia',
+  'lucía',
+  'female',
+  'mujer',
+  'google español',
+]
+
+function isFemaleVoiceName(name: string): boolean {
   const normalized = name.toLowerCase()
-  return MALE_HINTS.some((hint) => normalized.includes(hint))
+  return FEMALE_HINTS.some((hint) => normalized.includes(hint))
 }
 
 interface VoiceChoice {
   voice: SpeechSynthesisVoice
   male: boolean
+}
+
+function voiceQuality(name: string): number {
+  const n = name.toLowerCase()
+  let score = 0
+  if (n.includes('natural')) score += 3
+  if (n.includes('online')) score += 2
+  if (isFemaleVoiceName(n)) score += 2
+  if (n.includes('google')) score += 1
+  return score
 }
 
 function chooseSpanishVoice(
@@ -41,28 +73,24 @@ function chooseSpanishVoice(
 
   if (spanish.length === 0) return null
 
-  const male = spanish.filter((voice) => isMaleVoiceName(voice.name))
-
-  // 1) Voz masculina con el idioma preferido.
+  // Por cada idioma en orden de preferencia, elegir la voz de MAYOR
+  // calidad (voces "Natural/Online" y femeninas puntúan más), nunca
+  // la primera de la lista a ciegas.
   for (const language of VOICE_PREFERENCES) {
-    const match = male.find(
-      (voice) => voice.lang.toLowerCase() === language.toLowerCase(),
-    )
-    if (match) return { voice: match, male: true }
+    const candidates = spanish
+      .filter((voice) => voice.lang.toLowerCase() === language.toLowerCase())
+      .sort((a, b) => voiceQuality(b.name) - voiceQuality(a.name))
+
+    if (candidates.length > 0) {
+      return { voice: candidates[0], male: false }
+    }
   }
 
-  // 2) Cualquier masculina en español.
-  if (male.length > 0) return { voice: male[0], male: true }
+  const byQuality = [...spanish].sort(
+    (a, b) => voiceQuality(b.name) - voiceQuality(a.name),
+  )
 
-  // 3) Sin masculina instalada: la preferida disponible (se baja el tono).
-  for (const language of VOICE_PREFERENCES) {
-    const match = spanish.find(
-      (voice) => voice.lang.toLowerCase() === language.toLowerCase(),
-    )
-    if (match) return { voice: match, male: false }
-  }
-
-  return { voice: spanish[0], male: false }
+  return { voice: byQuality[0], male: false }
 }
 
 export function useSpeechSynthesis() {
@@ -77,6 +105,8 @@ export function useSpeechSynthesis() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
   /** Última palabra alcanzada por el motor TTS (evento onboundary). */
   const [boundary, setBoundary] = useState<SpeechBoundary | null>(null)
+  /** Texto (limpio) de la última respuesta solicitada al TTS. */
+  const [lastSpokenText, setLastSpokenText] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isSupported) return
@@ -111,6 +141,9 @@ export function useSpeechSynthesis() {
     cleaned = cleaned.replace(/_([^_]+)_/g, '$1')
     cleaned = cleaned.replace(/~~([^~]+)~~/g, '$1')
     cleaned = cleaned.replace(/[\*_`#>\-\+\[\]\(\)\!]/g, ' ')
+    for (const [pattern, replacement] of PRONUNCIATION_MAP) {
+      cleaned = cleaned.replace(pattern, replacement)
+    }
     cleaned = cleaned.replace(/\s+/g, ' ')
     return cleaned.trim()
   }, [])
@@ -118,7 +151,7 @@ export function useSpeechSynthesis() {
   const speak = useCallback(
     (text: string) => {
       if (!isSupported) {
-        console.debug('[ALMA] Reproducción de voz no disponible en este navegador.')
+        console.debug('[GROWII] Reproducción de voz no disponible en este navegador.')
         return
       }
 
@@ -126,8 +159,10 @@ export function useSpeechSynthesis() {
       if (!rawClean) return
       const cleanText = cleanTextForSpeech(rawClean)
       if (!cleanText) return
+      setLastSpokenText(cleanText)
+      logEvent('voice', `Reproducción solicitada (${cleanText.length} caracteres)`)
 
-      console.debug(`[ALMA] Reproducción solicitada: ${cleanText.length} caracteres.`)
+      console.debug(`[GROWII] Reproducción solicitada: ${cleanText.length} caracteres.`)
 
       window.speechSynthesis.cancel()
       setBoundary(null)
@@ -137,23 +172,16 @@ export function useSpeechSynthesis() {
 
       if (choice) {
         console.debug(
-          `[ALMA] Voz seleccionada: ${choice.voice.name} (${choice.male ? 'masculina' : 'femenina; se baja el tono'}).`,
+          `[GROWII] Voz seleccionada: ${choice.voice.name}.`,
         )
         utterance.voice = choice.voice
         utterance.lang = choice.voice.lang
-        // Timbre grave y cálido. Si no hay voz masculina instalada,
-        // se baja aún más para acercar el resultado.
-        utterance.pitch = choice.male ? 0.78 : 0.65
-
-        if (!choice.male) {
-          console.debug(
-            '[ALMA] Para voz de hombre real: instala una voz masculina en español (Configuración > Hora e idioma > Voz > Agregar voces).',
-          )
-        }
+        // Timbre joven y cálido, cercano al registro natural.
+        utterance.pitch = 1.05
       } else {
-        console.debug('[ALMA] Voz española no disponible; se usa la voz predeterminada.')
+        console.debug('[GROWII] Voz española no disponible; se usa la voz predeterminada.')
         utterance.lang = 'es-BO'
-        utterance.pitch = 0.65
+        utterance.pitch = 1.05
       }
 
       // Habla pausada y clara; speechSchedule.ts usa la misma constante
@@ -172,17 +200,20 @@ export function useSpeechSynthesis() {
       }
 
       utterance.onstart = () => {
-        console.debug('[ALMA] Reproducción de voz iniciada.')
+        console.debug('[GROWII] Reproducción de voz iniciada.')
+        logEvent('voice', 'Reproducción iniciada')
         setIsSpeaking(true)
         setError(null)
       }
       utterance.onend = () => {
-        console.debug('[ALMA] Reproducción de voz finalizada.')
+        console.debug('[GROWII] Reproducción de voz finalizada.')
+        logEvent('voice', 'Reproducción finalizada')
         setBoundary(null)
         setIsSpeaking(false)
       }
       utterance.onerror = (event) => {
-        console.debug(`[ALMA] Error al reproducir la voz: ${event.error || 'desconocido'}.`)
+        console.debug(`[GROWII] Error al reproducir la voz: ${event.error || 'desconocido'}.`)
+        logEvent('error', `Voz: ${event.error || 'desconocido'}`, false)
         setBoundary(null)
         setIsSpeaking(false)
 
@@ -198,7 +229,7 @@ export function useSpeechSynthesis() {
 
   const cancel = useCallback(() => {
     if (!isSupported) return
-    console.debug('[ALMA] Reproducción cancelada.')
+    console.debug('[GROWII] Reproducción cancelada.')
     window.speechSynthesis.cancel()
     setBoundary(null)
     setIsSpeaking(false)
@@ -216,5 +247,7 @@ export function useSpeechSynthesis() {
     cancel,
     clearError,
     boundary,
+    cleanTextForSpeech,
+    lastSpokenText,
   }
 }

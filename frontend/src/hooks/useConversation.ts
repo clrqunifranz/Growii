@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { sendChatMessage } from '../services/chatApi'
+import { logEvent } from '../utils/telemetry'
 import type { ChatApiMessage, ChatMessage } from '../types/chat'
 
 // El backend valida un máximo de 10 mensajes en el historial (y 4000 caracteres
@@ -32,6 +33,13 @@ export function useConversation() {
     setError(null)
   }, [])
 
+  const reset = useCallback(() => {
+    pendingQuestionRef.current = null
+    setMessages([])
+    setError(null)
+    setIsThinking(false)
+  }, [])
+
   const ask = useCallback(
     async (rawText: string) => {
       const text = rawText.trim()
@@ -43,7 +51,8 @@ export function useConversation() {
         return null
       }
 
-      console.debug('[ALMA] Pregunta captada; preparando solicitud al backend.')
+      logEvent('send', `Pregunta: «${text.slice(0, 140)}»`)
+      console.debug('[GROWII] Pregunta captada; preparando solicitud al backend.')
       const history: ChatApiMessage[] = messages
         .slice(-MAX_HISTORY_MESSAGES)
         .map(({ role, content }) => ({
@@ -63,9 +72,10 @@ export function useConversation() {
       setError(null)
 
       try {
-        console.debug('[ALMA] Enviando POST /api/chat.')
+        console.debug('[GROWII] Enviando POST /api/chat.')
         const result = await sendChatMessage({ message: text, history })
-        console.debug(`[ALMA] Respuesta del backend recibida: ${result.reply.length} caracteres.`)
+        console.debug(`[GROWII] Respuesta del backend recibida: ${result.reply.length} caracteres.`)
+        logEvent('response', `Respuesta recibida (${result.reply.length} caracteres)`)
 
         const assistantMessage: ChatMessage = {
           id: createId(),
@@ -79,7 +89,8 @@ export function useConversation() {
         pendingQuestionRef.current = null
         return result.reply
       } catch (caughtError) {
-        console.debug('[ALMA] La respuesta del backend no pudo utilizarse.')
+        console.debug('[GROWII] La respuesta del backend no pudo utilizarse.')
+        logEvent('error', `Chat: ${friendlyConversationError(caughtError)}`, false)
         setError(friendlyConversationError(caughtError))
         return null
       } finally {
@@ -103,5 +114,6 @@ export function useConversation() {
     ask,
     retry,
     clearError,
+    reset,
   }
 }

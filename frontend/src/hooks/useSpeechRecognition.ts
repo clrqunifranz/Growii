@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { logEvent } from '../utils/telemetry'
 import type {
-  AlmaSpeechRecognition,
-  AlmaSpeechRecognitionErrorEvent,
-  AlmaSpeechRecognitionEvent,
-  AlmaSpeechWindow,
+  GrowiiSpeechRecognition,
+  GrowiiSpeechRecognitionErrorEvent,
+  GrowiiSpeechRecognitionEvent,
+  GrowiiSpeechWindow,
 } from '../types/speech'
 
 const DEFAULT_LANGUAGE = 'es-BO'
@@ -42,7 +43,7 @@ export function useSpeechRecognition({
   const [isListening, setIsListening] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const recognitionRef = useRef<AlmaSpeechRecognition | null>(null)
+  const recognitionRef = useRef<GrowiiSpeechRecognition | null>(null)
   const isListeningRef = useRef(false)
   const onTextRef = useRef(onText)
   const onEndRef = useRef(onEnd)
@@ -55,7 +56,7 @@ export function useSpeechRecognition({
   }, [onEnd, onText])
 
   useEffect(() => {
-    const speechWindow = window as AlmaSpeechWindow
+    const speechWindow = window as GrowiiSpeechWindow
     const RecognitionConstructor =
       speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition
     const secureContext = typeof window !== 'undefined' && window.isSecureContext
@@ -64,19 +65,19 @@ export function useSpeechRecognition({
       !!mediaDevices && typeof mediaDevices.getUserMedia === 'function'
 
     if (!RecognitionConstructor) {
-      console.debug('[ALMA] Reconocimiento de voz no disponible en este navegador.')
+      console.debug('[GROWII] Reconocimiento de voz no disponible en este navegador.')
       setIsSupported(false)
       return
     }
 
     if (!secureContext) {
-      console.debug('[ALMA] Reconocimiento de voz bloqueado: contexto no seguro.')
+      console.debug('[GROWII] Reconocimiento de voz bloqueado: contexto no seguro.')
       setIsSupported(false)
       return
     }
 
     if (!hasAudioDevices) {
-      console.debug('[ALMA] Reconocimiento de voz bloqueado: micrófono no detectable.')
+      console.debug('[GROWII] Reconocimiento de voz bloqueado: micrófono no detectable.')
       setIsSupported(false)
       return
     }
@@ -94,17 +95,19 @@ export function useSpeechRecognition({
       isListeningRef.current = true
       setIsListening(true)
       setError(null)
-      console.debug('[ALMA] Reconocimiento iniciado.')
+      logEvent('recognition', 'Dictado iniciado')
+      console.debug('[GROWII] Reconocimiento iniciado.')
     }
 
     recognition.onend = () => {
       isListeningRef.current = false
       setIsListening(false)
-      console.debug('[ALMA] Reconocimiento finalizado.')
+      logEvent('recognition', 'Dictado finalizado')
+      console.debug('[GROWII] Reconocimiento finalizado.')
       onEndRef.current?.()
     }
 
-    recognition.onresult = (event: AlmaSpeechRecognitionEvent) => {
+    recognition.onresult = (event: GrowiiSpeechRecognitionEvent) => {
       if (ignoreResultsRef.current) return
 
       let finalText = ''
@@ -122,18 +125,20 @@ export function useSpeechRecognition({
       const cleanText = finalText.replace(/\s+/g, ' ').trim()
 
       if (!cleanText) {
-        console.debug('[ALMA] Resultado recibido sin una frase final.')
+        console.debug('[GROWII] Resultado recibido sin una frase final.')
         return
       }
 
-      console.debug('[ALMA] Resultado final recibido.')
+      console.debug('[GROWII] Resultado final recibido.')
+      logEvent('recognition', `Texto reconocido: «${cleanText.slice(0, 120)}»`)
       onTextRef.current?.(cleanText)
     }
 
-    recognition.onerror = (event: AlmaSpeechRecognitionErrorEvent) => {
+    recognition.onerror = (event: GrowiiSpeechRecognitionErrorEvent) => {
       isListeningRef.current = false
       setIsListening(false)
-      console.debug(`[ALMA] Error de reconocimiento: ${event.error || 'desconocido'}.`)
+      console.debug(`[GROWII] Error de reconocimiento: ${event.error || 'desconocido'}.`)
+      logEvent('error', `Reconocimiento: ${event.error || 'desconocido'}`, false)
 
       if (event.error === 'aborted') return
 
@@ -169,13 +174,13 @@ export function useSpeechRecognition({
       setError(
         'El reconocimiento de voz no está disponible en este navegador. Usa el modo TEXTO.',
       )
-      console.debug('[ALMA] Intento de inicio sin soporte detectado.')
+      console.debug('[GROWII] Intento de inicio sin soporte detectado.')
       return
     }
 
     if (!recognition || isListeningRef.current) return
 
-    console.debug('[ALMA] Solicitando permiso de micrófono.')
+    console.debug('[GROWII] Solicitando permiso de micrófono.')
     isListeningRef.current = false
     setError(null)
     ignoreResultsRef.current = false
@@ -186,7 +191,7 @@ export function useSpeechRecognition({
     } catch {
       isListeningRef.current = false
       setIsListening(false)
-      console.debug('[ALMA] No se pudo iniciar el reconocimiento.')
+      console.debug('[GROWII] No se pudo iniciar el reconocimiento.')
       setError('No se pudo iniciar el micrófono. Intenta nuevamente.')
     }
   }, [isSupported])
@@ -195,12 +200,12 @@ export function useSpeechRecognition({
     ignoreResultsRef.current = discardResults
 
     if (recognitionRef.current) {
-      console.debug('[ALMA] Detención manual del reconocimiento.')
+      console.debug('[GROWII] Detención manual del reconocimiento.')
       recognitionRef.current.stop()
       return
     }
 
-    console.debug('[ALMA] No había un reconocimiento activo para detener.')
+    console.debug('[GROWII] No había un reconocimiento activo para detener.')
   }, [])
 
   const toggle = useCallback(() => {
